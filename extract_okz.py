@@ -159,7 +159,7 @@ if __name__ == '__main__':
         f_empties = exit_stack.enter_context(open('ps/empties.txt', 'w'))
         f_inhabitated = exit_stack.enter_context(open('ps/inhabitated.txt', 'w'))
         out = csv.writer(f_out)
-        out.writerow(['program', 'okz'])
+        out.writerow(['ps', 'okz'])
         f_out.flush()
         okzs = pool.imap_unordered(process_file, files, chunksize=8)
         # okzs = map(process_file, files)

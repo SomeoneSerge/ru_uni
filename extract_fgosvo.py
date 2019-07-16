@@ -147,7 +147,7 @@ if __name__ == '__main__':
         f_empties = exit_stack.enter_context(open('programs/empties.txt', 'w'))
         f_inhabitated = exit_stack.enter_context(open('programs/inhabitated.txt', 'w'))
         out = csv.writer(f_out)
-        out.writerow(['program', 'profstandard'])
+        out.writerow(['program', 'ps'])
         profstandards = pool.imap_unordered(filename_to_codes, files, chunksize=4)
         # profstandards = map(retry_until_success(filename_to_codes), files)
         # profstandards = map(tee(print), profstandards)
