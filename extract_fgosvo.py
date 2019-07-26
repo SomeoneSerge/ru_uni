@@ -3,6 +3,7 @@ import PyPDF2
 import glob
 import tqdm
 import csv
+import argparse
 
 import time
 from multiprocessing import Pool
@@ -16,15 +17,11 @@ import collections
 PAT_WHITESPACES = re.compile(r'\s+')
 PAT_PROFSTANDARDS_HEADER = re.compile('^.*код.*проф.*стандарт.*$', re.IGNORECASE)
 PAT_PROFSTANDARD_CODE = re.compile(r'\b\d\d\.\d\d\d\b')
-PAT_PROGRAM_PDF = re.compile(r'(\d\d\.\d\d\.\d\d)\.pdf')
+PAT_PROGRAM_PDF = re.compile(r'\b(\d\d\.\d\d\.\d\d)\.pdf$')
 
-N_PROCESSES = 2
+N_PROCESSES = 4
 
 # no time to fix camelot, just set set ulimit -n LARGE_NUMBER
-
-
-def get_files():
-    return glob.glob('programs/*.pdf')
 
 
 def n_pages_in_file(filename):
@@ -69,14 +66,22 @@ def df_to_profstandard_codes(df):
 
 def filename_to_codes(filename: str) -> typing.Tuple[str, list]:
     program_code = PAT_PROGRAM_PDF.search(filename)
-    assert program_code, filename
+    if not program_code:
+        return (filename, [])
     program_code = program_code.group(1)
     # return (program_code, ['10.003'])
-    profstandards = get_dataframes(filename)
-    profstandards = get_profstandards_df(profstandards)
-    profstandards = df_to_profstandard_codes(profstandards)
-    profstandards = list(profstandards)
-    return (program_code, profstandards)
+    MAX_TRIES = 2
+    for i in range(MAX_TRIES):
+        try:
+            profstandards = get_dataframes(filename)
+            profstandards = get_profstandards_df(profstandards)
+            profstandards = df_to_profstandard_codes(profstandards)
+            profstandards = list(profstandards)
+            return (program_code, profstandards)
+        except Exception as e:
+            if i == MAX_TRIES - 1:
+                print(e)
+                return (program_code, [])
 
 def retry_until_success(fun):
     """
@@ -95,8 +100,8 @@ def retry_until_success(fun):
     However, I just want to get the fucking graph
     and don't mind spending CPU resources instead of my own cognitive ones"""
 
-    def _fun(*args, **kwargs):
-        while True:
+    def _fun(*args, max_iter=1000, **kwargs):
+        for i in range(max_iter):
             try:
                 return fun(*args, **kwargs)
             except OSError:
@@ -139,15 +144,20 @@ def expand_singletone_product(x_times_ys: typing.Tuple[object, typing.Iterable])
 
 
 if __name__ == '__main__':
-    files = get_files()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('filelist')
+    args = parser.parse_args()
+    with open(args.filelist, 'r') as f:
+        files = list(map(str.strip, f.readlines()))
     print('About to proces {} files'.format(len(files)))
     with contextlib.ExitStack() as exit_stack:
         pool = exit_stack.enter_context(Pool(N_PROCESSES))
-        f_out = exit_stack.enter_context(open('program_to_profstandard.csv', 'w'))
+        f_out = exit_stack.enter_context(open('program_to_profstandard.csv', 'a'))
         f_empties = exit_stack.enter_context(open('programs/empties.txt', 'w'))
         f_inhabitated = exit_stack.enter_context(open('programs/inhabitated.txt', 'w'))
         out = csv.writer(f_out)
-        out.writerow(['program', 'ps'])
+        if f_out.tell() == 0:
+            out.writerow(['program', 'ps'])
         profstandards = pool.imap_unordered(filename_to_codes, files, chunksize=4)
         # profstandards = map(retry_until_success(filename_to_codes), files)
         # profstandards = map(tee(print), profstandards)
@@ -157,4 +167,7 @@ if __name__ == '__main__':
         profstandards = map(expand_singletone_product, profstandards)
         profstandards = itertools.chain.from_iterable(profstandards)
         profstandards = map(tee(out.writerow), profstandards)
+        profstandards = map(tee(lambda row: f_out.flush()), profstandards)
+        profstandards = map(tee(lambda row: f_empties.flush()), profstandards)
+        profstandards = map(tee(lambda row: f_inhabitated.flush()), profstandards)
         consume(profstandards)
